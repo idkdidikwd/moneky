@@ -60,9 +60,11 @@ jobs:
           p=root/"src/client/java/dev/openai/grandline/mixin/AvatarRendererMixin.java"
           s=p.read_text()
           s=s.replace(
-              'method = "submit(Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V",\\n            at = @At("HEAD"), cancellable = true)',
-              'method = "submit",\\n            at = @At("HEAD"), cancellable = true, require = 0)'
+              'method = "submit(Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V"',
+              'method = "submit"'
           )
+          s=s.replace('at = @At("HEAD"), cancellable = true)', 'at = @At("HEAD"), cancellable = true, require = 0)', 1)
+          assert 'method = "submit"' in s and 'require = 0' in s
           p.write_text(s)
           p=root/"src/client/java/dev/openai/grandline/mixin/PlayerModelMixin.java"
           p.write_text(p.read_text().replace(
@@ -70,7 +72,7 @@ jobs:
               '@Inject(method = "setupAnim", at = @At("TAIL"))'
           ))
           p=root/"gradle.properties"
-          p.write_text(p.read_text().replace("mod_version=1.0.0", "mod_version=1.0.1"))
+          p.write_text(p.read_text().replace("mod_version=1.0.0", "mod_version=1.0.2"))
           p=root/"tools/verify_release.py"
           p.write_text(p.read_text().replace('"InputConstants.Type.KEYSYM"', '"InputConstants.Type.KEYBOARD"'))
           PY
@@ -96,6 +98,17 @@ jobs:
       - name: Clean compile and remap
         working-directory: project
         run: gradle --no-daemon --stacktrace clean build
+      - name: Verify crash-fix mixin bytecode
+        working-directory: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          jar_path=$(find build/libs -maxdepth 1 -type f -name 'grandline-quake-azure-*.jar' ! -name '*-sources.jar' | head -n1)
+          test -n "$jar_path"
+          unzip -p "$jar_path" dev/openai/grandline/mixin/AvatarRendererMixin.class > /tmp/AvatarRendererMixin.class
+          javap -v -p /tmp/AvatarRendererMixin.class | tee /tmp/avatar-mixin-javap.txt
+          grep -Fq 'method=["submit"]' /tmp/avatar-mixin-javap.txt
+          grep -Fq 'require=0' /tmp/avatar-mixin-javap.txt
       - name: Client initialization smoke test (headless)
         working-directory: project
         shell: bash
