@@ -57,6 +57,20 @@ jobs:
           ))
           p=root/"src/client/java/dev/openai/grandline/client/ModKeyMappings.java"
           p.write_text(p.read_text().replace("InputConstants.Type.KEYSYM", "InputConstants.Type.KEYBOARD"))
+          p=root/"src/client/java/dev/openai/grandline/mixin/AvatarRendererMixin.java"
+          s=p.read_text()
+          s=s.replace(
+              'method = "submit(Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V",\\n            at = @At("HEAD"), cancellable = true)',
+              'method = "submit",\\n            at = @At("HEAD"), cancellable = true, require = 0)'
+          )
+          p.write_text(s)
+          p=root/"src/client/java/dev/openai/grandline/mixin/PlayerModelMixin.java"
+          p.write_text(p.read_text().replace(
+              '@Inject(method = "setupAnim(Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;)V", at = @At("TAIL"))',
+              '@Inject(method = "setupAnim", at = @At("TAIL"))'
+          ))
+          p=root/"gradle.properties"
+          p.write_text(p.read_text().replace("mod_version=1.0.0", "mod_version=1.0.1"))
           p=root/"tools/verify_release.py"
           p.write_text(p.read_text().replace('"InputConstants.Type.KEYSYM"', '"InputConstants.Type.KEYBOARD"'))
           PY
