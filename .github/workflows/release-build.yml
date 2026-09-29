@@ -71,7 +71,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check --no-input pillow
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
+          sudo apt-get install -y -qq ffmpeg xvfb
       - name: Static release audit
         working-directory: project
         run: python tools/verify_release.py
@@ -82,6 +82,21 @@ jobs:
       - name: Clean compile and remap
         working-directory: project
         run: gradle --no-daemon --stacktrace clean build
+      - name: Client startup smoke test
+        working-directory: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p run
+          set +e
+          timeout --signal=INT --kill-after=20s 90s \
+            xvfb-run -a gradle --no-daemon runClient > run/client-smoke.log 2>&1
+          code=$?
+          set -e
+          cat run/client-smoke.log
+          grep -Fq 'Grand Line: Quake & Azure initialized for Minecraft 26.3 / Fabric Loader 0.19.5' run/client-smoke.log
+          if grep -Eiq '(Mixin apply failed|Could not execute entrypoint|Exception in thread "Render thread"|GLFW error|Failed to create window|Could not initialize class)' run/client-smoke.log; then exit 1; fi
+          if [ "$code" -ne 124 ] && [ "$code" -ne 130 ] && [ "$code" -ne 143 ]; then exit "$code"; fi
       - name: Dedicated-server startup smoke test
         working-directory: project
         shell: bash
@@ -122,3 +137,4 @@ jobs:
             project/build/libs/jar-contents.txt
             project/build/libs/built-fabric.mod.json
             project/run/server-smoke.log
+            project/run/client-smoke.log
