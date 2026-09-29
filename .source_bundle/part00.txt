@@ -1,0 +1,277 @@
+@@FILE 278 gradle.properties
+org.gradle.jvmargs=-Xmx4G
+org.gradle.parallel=true
+org.gradle.configuration-cache=false
+minecraft_version=26.3
+loader_version=0.19.5
+loom_version=1.17.21
+fabric_api_version=0.161.0+26.3
+mod_version=1.0.0
+maven_group=dev.openai.grandline
+archives_base_name=grandline-quake-azure
+@@FILE 1356 build.gradle
+plugins {
+    id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+loom {
+    splitEnvironmentSourceSets()
+    mods {
+        "grandlinequakes" {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
+    options.encoding = 'UTF-8'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+    withSourcesJar()
+}
+
+jar {
+    from("LICENSE")
+    manifest {
+        attributes(
+            "Implementation-Title": "Grand Line: Quake & Azure",
+            "Implementation-Version": project.version,
+            "Built-For-Minecraft": project.minecraft_version,
+            "Built-For-Fabric-Loader": project.loader_version
+        )
+    }
+}
+@@FILE 172 settings.gradle
+pluginManagement {
+    repositories {
+        maven { url = 'https://maven.fabricmc.net/' }
+        gradlePluginPortal()
+    }
+}
+rootProject.name = 'grandline-quake-azure'
+@@FILE 1244 LICENSE
+MIT License
+
+Copyright (c) 2026
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Fan-project code and original assets only. One Piece and related character/power names are trademarks/copyrights of their respective owners; no commercial anime/game assets are included.
+@@FILE 301 src/client/java/dev/openai/grandline/mixin/CameraInvoker.java
+package dev.openai.grandline.mixin;
+
+import net.minecraft.client.Camera;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.gen.Invoker;
+
+@Mixin(Camera.class)
+public interface CameraInvoker {
+    @Invoker("getMaxZoom")
+    float grandlinequakes$getMaxZoom(float distance);
+}
+@@FILE 5414 src/client/java/dev/openai/grandline/mixin/CameraMixin.java
+package dev.openai.grandline.mixin;
+
+import dev.openai.grandline.config.ModConfig;
+import dev.openai.grandline.state.DragonForm;
+import dev.openai.grandline.state.FruitPower;
+import dev.openai.grandline.state.PowerState;
+import net.minecraft.client.Camera;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+@Mixin(Camera.class)
+public abstract class CameraMixin {
+    @Shadow private boolean detached;
+    @Shadow private Entity entity;
+    @Shadow private float roll;
+    @Shadow protected abstract void move(float forwards, float up, float right);
+
+    @Inject(method = "alignWithEntity", at = @At("TAIL"))
+    private void grandlinequakes$transformAndImpactCamera(float partialTicks, CallbackInfo ci) {
+        Minecraft mc = Minecraft.getInstance();
+        if (!(entity instanceof Player local) || mc.player != local) return;
+
+        // Form-aware framing is local-only. It changes the camera, never gameplay authority.
+        if (PowerState.fruit(local) == FruitPower.SEIRYU) {
+            DragonForm form = PowerState.form(local);
+            if (form != DragonForm.HUMAN) {
+                if (detached) {
+                    float desiredExtra = form == DragonForm.DRAGON
+                            ? (float)Math.max(0.0, ModConfig.dragonCameraDistance - 4.0)
+                            : 2.25f;
+                    float collisionSafeExtra = ((CameraInvoker)(Object)this).grandlinequakes$getMaxZoom(desiredExtra);
+                    move(-collisionSafeExtra, form == DragonForm.DRAGON ? 1.65f : 0.45f, 0.0f);
+                } else if (form == DragonForm.DRAGON) {
+                    // Put first-person at the dragon's head instead of inside the hidden human body.
+                    move(3.05f, 1.55f, 0.0f);
+                } else {
+                    move(0.25f, 0.32f, 0.0f);
+                }
+            }
+        }
+
+        // Distance-scaled impact shake observes synchronized actions from every nearby player.
+        // This makes a spectator feel a World Shaker or transformation without giving a remote
+        // attack the same force as the user standing at its hypocenter.
+        if (mc.level == null || ModConfig.cameraShake <= 0.0) return;
+        double best = 0.0;
+        int bestAction = 0;
+        int bestTicks = 0;
+        for (Player source : mc.level.players()) {
+            int action = PowerState.action(source);
+            int ticks = PowerState.actionTicks(source);
+            if (action == 0 || ticks <= 0) continue;
+            double distance = source.position().distanceTo(local.position());
+            double reach = action % 100 == 5 ? 92.0 : action / 100 == 1 ? 54.0 : 42.0;
+            if (distance > reach) continue;
+            double base = action % 100 == 5 ? 1.0 : action / 100 == 1 ? 0.72 : 0.56;
+            double distanceFalloff = 1.0 - Math.min(1.0, distance / reach);
+            double strength = base * distanceFalloff * distanceFalloff;
+            if (source == local) strength = Math.max(strength, base * 0.92);
+            if (strength > best) {
+                best = strength;
+                bestAction = action;
+                bestTicks = ticks;
+            }
+        }
+        if (best <= 0.0) return;
+
+        double fade = Math.min(1.0, bestTicks / 12.0);
+        double phase = (local.tickCount + partialTicks) * 2.65 + bestAction * 0.37;
+        float amp = (float)(0.080 * best * fade * ModConfig.cameraShake);
+        move((float)Math.sin(phase * .83) * amp * .20f,
+                (float)Math.sin(phase * 1.37) * amp,
+                (float)Math.cos(phase) * amp);
+
+        // World Shaker sells battlefield displacement with a tiny, distance-scaled horizon cant
+        // rather than rotating the level. It is deliberately restrained and tied to the same
+        // accessibility intensity as camera shake.
+        if (bestAction == 105) {
+            float seizeEnvelope = (float)Math.min(1.0, bestTicks / 20.0);
+            float cant = (float)Math.sin((local.tickCount + partialTicks) * .105f)
+                    * (float)(2.35 * best * seizeEnvelope * ModConfig.cameraShake);
+            roll += cant;
+        }
+    }
+
+    @Inject(method = "calculateFov", at = @At("RETURN"), cancellable = true)
+    private void grandlinequakes$fovKick(float partialTicks, CallbackInfoReturnable<Float> cir) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || entity != mc.player || ModConfig.cameraShake <= 0.0) return;
+        int action = PowerState.action(mc.player);
+        int ticks = PowerState.actionTicks(mc.player);
+        if (action == 0 || ticks <= 0) return;
+        float kick = switch (action % 100) {
+            case 1 -> 2.8f;
+            case 3 -> 3.6f;
+            case 5 -> 5.2f;
+            default -> 1.8f;
+        };
+        if (PowerState.form(mc.player) == DragonForm.DRAGON) kick += 1.4f;
+        float envelope = (float)Math.min(1.0, ticks / 10.0);
+        cir.setReturnValue(cir.getReturnValue() + kick * envelope * (float)ModConfig.cameraShake);
+    }
+}
+@@FILE 6091 src/client/java/dev/openai/grandline/mixin/PlayerModelMixin.java
+package dev.openai.grandline.mixin;
+
+import dev.openai.grandline.item.DevilFruitItem;
+import dev.openai.grandline.state.PowerState;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.model.HumanoidModel;
+import net.minecraft.client.model.geom.ModelPart;
+import net.minecraft.client.model.player.PlayerModel;
+import net.minecraft.client.renderer.entity.state.AvatarRenderState;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+/**
+ * Authored third-person poses for human-form techniques and Devil Fruit consumption. The render
+ * state carries the entity id, so remote players receive the same synchronized action pose without
+ * client-owned combat state.
+ */
+@Mixin(PlayerModel.class)
+public abstract class PlayerModelMixin extends HumanoidModel<AvatarRenderState> {
+    protected PlayerModelMixin(ModelPart root) {
+        super(root);
+    }
+
+    @Inject(method = "setupAnim(Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;)V", at = @At("TAIL"))
+    private void grandlinequakes$authoredPose(AvatarRenderState state, CallbackInfo ci) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return;
+        Entity entity = mc.level.getEntity(state.id);
+        if (!(entity instanceof Player player)) return;
+
+        if (player.isUsingItem() && player.getUseItem().getItem() instanceof DevilFruitItem) {
+            float t = player.getUseItemRemainingTicks();
+            float chew = (float)Math.sin((player.tickCount + t) * 0.58f);
+            this.head.xRot += -0.17f + chew * 0.035f;
+            this.head.yRot += chew * 0.055f;
+            this.rightArm.xRot = -1.80f + chew * 0.09f;
+            this.rightArm.yRot = -0.28f;
+            this.rightArm.zRot = 0.08f + chew * 0.035f;
+            this.leftArm.xRot = -0.72f - chew * 0.06f;
+            this.leftArm.yRot = 0.34f;
+            this.body.yRot = chew * 0.035f;
+            return;
+        }
+
+        int action = PowerState.action(player);
+        int ticks = PowerState.actionTicks(player);
+        if (action == 0 || ticks <= 0) return;
+        float pulse = (float)Math.sin((player.tickCount + state.ageInTicks * 0.05f) * 0.34f);
+        int family = action / 100;
+        int slot = Math.floorMod(action, 100);
+
+        if (family == 1) { // Gura: every move has a different readable silhouette.
+            switch (slot) {
+                case 1 -> { // quake fist: shoulder coils, then punches through centerline
+                    float release = ticks < 10 ? 1.0f : Math.max(0f, 1f - (ticks - 10) / 18f);
+                    this.rightArm.xRot = -1.45f - 1.25f * release;
+                    this.rightArm.yRot = -0.38f + 0.32f 
