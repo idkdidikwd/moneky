@@ -1,0 +1,80 @@
+name: Fabric 26.3 Release Build
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - name: Expand source project
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf project
+          mkdir project
+          unzip -q grandline-src.zip -d project
+          test -f project/build.gradle
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Static QA dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --no-input pillow
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+      - name: Static release audit
+        working-directory: project
+        run: python tools/verify_release.py
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.6.0'
+          cache-provider: basic
+      - name: Clean compile and remap
+        working-directory: project
+        run: gradle --no-daemon --stacktrace clean build
+      - name: Dedicated-server startup smoke test
+        working-directory: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p run
+          printf 'eula=true\n' > run/eula.txt
+          set +e
+          timeout --signal=INT --kill-after=20s 120s gradle --no-daemon runServer --args='nogui' > run/server-smoke.log 2>&1
+          code=$?
+          set -e
+          cat run/server-smoke.log
+          grep -Fq 'Grand Line: Quake & Azure initialized for Minecraft 26.3 / Fabric Loader 0.19.5' run/server-smoke.log
+          grep -Eq 'Done \([0-9.]+s\)!|Done \([0-9.]+s\)! For help' run/server-smoke.log
+          if grep -Eiq '(Exception in server tick loop|Mixin apply failed|Could not execute entrypoint|Failed to start the minecraft server)' run/server-smoke.log; then exit 1; fi
+          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ] && [ "$code" -ne 130 ] && [ "$code" -ne 143 ]; then exit "$code"; fi
+      - name: Verify release artifact and checksum
+        working-directory: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t jars < <(find build/libs -maxdepth 1 -type f -name 'grandline-quake-azure-*.jar' ! -name '*-sources.jar' | sort)
+          test "${#jars[@]}" -eq 1
+          sha256sum "${jars[0]}" | tee build/libs/SHA256SUMS.txt
+          unzip -l "${jars[0]}" | tee build/libs/jar-contents.txt
+          unzip -p "${jars[0]}" fabric.mod.json | tee build/libs/built-fabric.mod.json
+          grep -Fq '"minecraft": "=26.3"' build/libs/built-fabric.mod.json
+          grep -Fq '"fabricloader": ">=0.19.5"' build/libs/built-fabric.mod.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grandline-quake-azure-mc26.3-fabric
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            project/build/libs/grandline-quake-azure-*.jar
+            !project/build/libs/*-sources.jar
+            project/build/libs/SHA256SUMS.txt
+            project/build/libs/jar-contents.txt
+            project/build/libs/built-fabric.mod.json
+            project/run/server-smoke.log
