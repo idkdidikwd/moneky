@@ -55,6 +55,8 @@ jobs:
               "        Vec3 right = new Vec3(-f.z, 0, f.x);\n        if (right.lengthSqr() < 0.001) right = new Vec3(1, 0, 0);\n        right = right.normalize();\n        Vec3 up = right.cross(f).normalize();\n",
               "        Vec3 rightCandidate = new Vec3(-f.z, 0, f.x);\n        if (rightCandidate.lengthSqr() < 0.001) rightCandidate = new Vec3(1, 0, 0);\n        final Vec3 right = rightCandidate.normalize();\n        final Vec3 up = right.cross(f).normalize();\n"
           ))
+          p=root/"src/client/java/dev/openai/grandline/client/ModKeyMappings.java"
+          p.write_text(p.read_text().replace("InputConstants.Type.KEYSYM", "InputConstants.Type.KEYBOARD"))
           PY
           mkdir -p project/.github/workflows
           cp .github/workflows/release-build.yml project/.github/workflows/release-build.yml
