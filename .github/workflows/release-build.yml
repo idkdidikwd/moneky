@@ -18,6 +18,33 @@ jobs:
           rm -rf project
           mkdir project
           unzip -q grandline-src.zip -d project
+          python - <<'PY'
+          from pathlib import Path
+          root=Path("project")
+          for p in list((root/"src/main/java").rglob("*.java"))+list((root/"src/client/java").rglob("*.java")):
+              s=p.read_text()
+              s=s.replace(".serverLevel()", ".level()").replace(".getTags()", ".entityTags()")
+              p.write_text(s)
+          p=root/"src/main/java/dev/openai/grandline/ability/GuraAbilities.java"
+          s=p.read_text().replace("6.6f+s*.35","(float)(6.6+s*.35)").replace("4.2f+s*.42","(float)(4.2+s*.42)")
+          p.write_text(s)
+          p=root/"src/main/java/dev/openai/grandline/ability/SeiryuAbilities.java"
+          p.write_text(p.read_text().replace("2.8f+ring*.75","(float)(2.8+ring*.75)"))
+          p=root/"src/main/java/dev/openai/grandline/world/DragonController.java"
+          p.write_text(p.read_text().replace("player.hurtMarked=true;","player.needsSync=true;"))
+          p=root/"src/main/java/dev/openai/grandline/world/WorldOps.java"
+          p.write_text(p.read_text().replace("player.hurtMarked = true;","player.needsSync = true;"))
+          p=root/"src/main/java/dev/openai/grandline/world/CommandUtil.java"
+          p.write_text(p.read_text().replace(
+              "player.getServer().getCommands().performPrefixedCommand(\n                    player.createCommandSourceStack().withPermission(4), command);",
+              "player.level().getServer().getCommands().performPrefixedCommand(\n                    player.createCommandSourceStack().withPermission(net.minecraft.server.permissions.PermissionSet.ALL_PERMISSIONS), command);"
+          ))
+          p=root/"src/main/java/dev/openai/grandline/state/PowerState.java"
+          p.write_text(p.read_text().replace(
+              "            return copyOnDeath ? configured.copyOnDeath() : configured;\n",
+              "            if (copyOnDeath) configured.copyOnDeath();\n"
+          ))
+          PY
           mkdir -p project/.github/workflows
           cp .github/workflows/release-build.yml project/.github/workflows/release-build.yml
           test -f project/build.gradle
