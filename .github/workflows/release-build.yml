@@ -27,6 +27,12 @@ jobs:
               p.write_text(s)
           p=root/"src/main/java/dev/openai/grandline/ability/GuraAbilities.java"
           s=p.read_text().replace("6.6f+s*.35","(float)(6.6+s*.35)").replace("4.2f+s*.42","(float)(4.2+s*.42)")
+          s=s.replace("        flat=flat.normalize();\n        Vec3 right=WorldOps.right(flat);\n",
+                      "        flat=flat.normalize();\n        final Vec3 quakeAxis=flat;\n        final Vec3 right=WorldOps.right(quakeAxis);\n")
+          s=s.replace("DisplayFx.pressureRing(p,pt,flat,", "DisplayFx.pressureRing(p,pt,quakeAxis,")
+          s=s.replace("Vec3 dir=flat.scale(Math.cos(spread))", "Vec3 dir=quakeAxis.scale(Math.cos(spread))")
+          s=s.replace("center.add(flat.scale((w-2)*3.4))", "center.add(quakeAxis.scale((w-2)*3.4))")
+          s=s.replace("center.add(flat.scale((after-1)*7.0))", "center.add(quakeAxis.scale((after-1)*7.0))")
           p.write_text(s)
           p=root/"src/main/java/dev/openai/grandline/ability/SeiryuAbilities.java"
           p.write_text(p.read_text().replace("2.8f+ring*.75","(float)(2.8+ring*.75)"))
