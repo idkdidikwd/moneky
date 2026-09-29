@@ -71,7 +71,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check --no-input pillow
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg xvfb
+          sudo apt-get install -y -qq ffmpeg xvfb xauth libgl1-mesa-dri libglx-mesa0 mesa-utils
       - name: Static release audit
         working-directory: project
         run: python tools/verify_release.py
@@ -90,7 +90,9 @@ jobs:
           mkdir -p run
           set +e
           timeout --signal=INT --kill-after=20s 90s \
-            xvfb-run -a gradle --no-daemon runClient > run/client-smoke.log 2>&1
+            SDL_VIDEODRIVER=x11 LIBGL_ALWAYS_SOFTWARE=1 \
+            xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX +render -noreset" \
+            gradle --no-daemon runClient > run/client-smoke.log 2>&1
           code=$?
           set -e
           cat run/client-smoke.log
