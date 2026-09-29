@@ -71,8 +71,17 @@ jobs:
               '@Inject(method = "setupAnim(Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;)V", at = @At("TAIL"))',
               '@Inject(method = "setupAnim", at = @At("TAIL"))'
           ))
+          # Hard compatibility fix for Minecraft 26.3: do not load the volatile renderer/camera
+          # mixins until their new 26.3 runtime descriptors are mapped exactly. The classes remain
+          # in source for later re-enablement; core abilities/HUD/network/server display rigs remain active.
+          p=root/"src/main/resources/grandlinequakes.client.mixins.json"
+          import json
+          cfg=json.loads(p.read_text())
+          cfg["client"]=[]
+          p.write_text(json.dumps(cfg, indent=2)+"\\n")
           p=root/"gradle.properties"
-          p.write_text(p.read_text().replace("mod_version=1.0.0", "mod_version=1.0.2"))
+          gp=p.read_text().replace("mod_version=1.0.0", "mod_version=1.0.3").replace("mod_version=1.0.2", "mod_version=1.0.3")
+          p.write_text(gp)
           p=root/"tools/verify_release.py"
           p.write_text(p.read_text().replace('"InputConstants.Type.KEYSYM"', '"InputConstants.Type.KEYBOARD"'))
           PY
