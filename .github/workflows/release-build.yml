@@ -90,7 +90,7 @@ jobs:
           mkdir -p run
           set +e
           timeout --signal=INT --kill-after=20s 90s \
-            SDL_VIDEODRIVER=x11 LIBGL_ALWAYS_SOFTWARE=1 \
+            env SDL_VIDEODRIVER=x11 LIBGL_ALWAYS_SOFTWARE=1 \
             xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX +render -noreset" \
             gradle --no-daemon runClient > run/client-smoke.log 2>&1
           code=$?
